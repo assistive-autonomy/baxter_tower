@@ -67,6 +67,7 @@ void TowerRobot::Init() {
   reset_ = false;
   pause_ = false;
   paused_ = false;
+  seen_tower_ = false;
   cube_selected_ = grip_calculated_ = pickup_calculated_ = false;
   cam_settings_["exposure"] = exposure_;
   cam_settings_["gain"] = gain_;
@@ -100,17 +101,30 @@ void TowerRobot::RosSetup() {
   pause_demo_sub_ =
     nh_->subscribe("/robot/digital_io/torso_" + side_ + "_button_show/state",
                    1, &TowerRobot::PauseDemoCB, this);
+
+  cuff_state_sub_ = 
+    nh_->subscribe("/robot/digital_io/"+ side_ + "_lower_cuff/state",
+                   1, &TowerRobot::CuffStateCB, this);
+
+  face_image_pub_ = nh_->advertise<sensor_msgs::Image>("/robot/xdisplay", 10);
+
   // right_range_sub_ = nh_->subscribe("/robot/range/right_hand_range/state", 1000,
   //                                   &TowerRobot::RightRangeCB, this);
 }
 
 void TowerRobot::InitRobot() {
+  // &blurr_.RightArm()->OpenCamera(1280, 800, 30, cam_settings_);
   arm_->OpenCamera(1280, 800, 30, cam_settings_);
   arm_->EndEffector("release");
 
   ROS_INFO("Calibrating Above Tower pose");
   blurr_.CalibrateArmPose(arm_side_, "above_tower");
   ROS_INFO("Above Tower calibrated!");
+
+
+  ROS_INFO("Calibrating Done pose");
+  blurr_.CalibrateArmPose(arm_side_, "done");
+  ROS_INFO("Done calibrated!");
 
   if (explore_poses_ <= 0) {ROS_WARN("WARNING: No explore poses set!");}
   for (int i = 0; i < explore_poses_; ++i) {
@@ -125,12 +139,14 @@ void TowerRobot::InitRobot() {
 void TowerRobot::RunDemo() {
   CLEAR()
   ROS_INFO("Begin Demo");
+
+  UpdateFace("smile");
   ros::spinOnce();
   blurr_.Head().Pan(0);
   blurr_.SetLED("torso_" + side_ + "_outer_light", false);
 
   ROS_INFO("Moving to Above Tower");
-  blurr_.MoveToPose(arm_side_, "above_tower");
+  blurr_.MoveToPose(arm_side_, "above_tower", true);
 
   if (reset_) {ROS_INFO("RESET ON");} else {ROS_INFO("RESET OFF");}
 
@@ -145,6 +161,7 @@ void TowerRobot::RunDemo() {
   }
 
   if (cubes_.size() == stacked_cubes_) {
+    UpdateFace("laugh");
     ROS_INFO("Tower Assembled!");
   }
 
@@ -170,6 +187,7 @@ void TowerRobot::RunDemo() {
 
 // ******************** FIND ********************
 bool TowerRobot::FindCube() {
+  UpdateFace("look_left_down");
   ROS_INFO("Finding Cube...");
   bool success = false;
   arm_->EndEffector("release");
@@ -221,7 +239,7 @@ bool TowerRobot::FindCube() {
                 // Check if the cube has not been stacked
                 if (cube_status_[cubes_[j]] == 0) {
                   cube_no = cubes_[j];
-                  ROS_INFO_STREAM("Setting cube " << cube_no);
+                  ROS_DEBUG_STREAM("Setting cube " << cube_no);
                 }
               }
             }
@@ -236,6 +254,7 @@ bool TowerRobot::FindCube() {
         find_state_ = TowerRobot::approach;
 
         if (!cube_selected_) {
+          UpdateFace("look_down");
           ROS_INFO("APPROACH!");
           target_cube_ = cube_no;
           ROS_INFO_STREAM("TargetCube: " << target_cube_);
@@ -243,36 +262,50 @@ bool TowerRobot::FindCube() {
           target_frame_ << "cube_" << target_cube_;
           cube_selected_ = true;
 
-          // geometry_msgs::TransformStamped cube_tf;
           try {
             cube_tf_ = tf_buffer_.lookupTransform(gripper_frame_, target_frame_.str(),
                                                   ros::Time());
           } catch (tf2::TransformException& ex) {
             ROS_ERROR("%s", ex.what());
           }
-          // ROS_DEBUG_STREAM(cube_tf_.transform);
+          ROS_DEBUG_STREAM("CubeTF: " << cube_tf_.transform);
 
-          // tf2::Quaternion q;
-          // tf2::convert(cube_tf_.transform.rotation, q);
-          // double roll, pitch, yaw;
-          // tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
-          // ROS_INFO("RPY: %f, %f, %f", roll, pitch, yaw);
+          tf2::Quaternion q;
+          tf2::convert(cube_tf_.transform.rotation, q);
+          double roll, pitch, yaw;
+          tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
 
           // if (pitch > 0.35) {
           // tf2::Transform approach_pose_;
-          // approach_pose_.getBasis().setRPY(0, 0, yaw);
-          approach_offset_.getBasis().setRPY(0, 0, 0);
+          approach_offset_.getBasis().setRPY(0, 0, yaw);
+          // approach_offset_.getBasis().setRPY(0, 0, 0);
           approach_offset_.setOrigin(tf2::Vector3(cube_tf_.transform.translation.x,
                                                   cube_tf_.transform.translation.y,
                                                   cube_tf_.transform.translation.z
                                                   - approach_z_offset_));
-          approach_pose_ = blurr_.CalcOffsetPose(arm_side_, approach_offset_);
+          // ROS_INFO("BeforeCalcOff");
+          try {
+            approach_pose_ = blurr_.CalcOffsetPose(arm_side_, approach_offset_);
+          }
+          catch (int error)
+          {
+            UpdateFace("confused");
+            ROS_WARN_STREAM("IK Failed: " << error);
+            res = blurr_.MoveToPoseNB(arm_side_, "above_tower");
+            ros::Duration(1).sleep();
+          }
+
+          geometry_msgs::Transform approach_tf;
+          tf2::convert(approach_offset_, approach_tf);
+          ROS_DEBUG_STREAM("ApproachPose: " << approach_tf);
+
         }
         // ROS_INFO("Debug");
         res = blurr_.MoveToNB(arm_side_, approach_pose_, true);
         if (res == BaxterRobot::success) {
           find_state_ = TowerRobot::closein;
           ROS_INFO("CLOSEIN!");
+          // ros::shutdown();  // TEMPFIX
         } else if (res == BaxterRobot::error) {
           ROS_INFO("Approach Error!");
           cube_selected_ = false;
@@ -286,9 +319,22 @@ bool TowerRobot::FindCube() {
         best_pose.getBasis().setRPY(M_PI, 0, 0);
         best_pose.setOrigin(tf2::Vector3(0.0, 0.0, find_z_offset_));
 
-        best_pose = blurr_.CheckBestApproach(arm_side_, target_frame_.str(), best_pose);
+        try
+        {
+          best_pose = blurr_.CheckBestApproach(arm_side_, target_frame_.str(), best_pose);
+        }
+        catch (int error)
+        {
+          UpdateFace("confused");
+          ROS_WARN_STREAM("IK Failed: " << error);
+          res = blurr_.MoveToPoseNB(arm_side_, "above_tower");
+          ros::Duration(1).sleep();
+        }
 
-        res = blurr_.MoveToFrameNB(arm_side_, target_frame_.str(), best_pose, true);
+        geometry_msgs::Transform best_tf;
+        tf2::convert(best_pose, best_tf);
+        ROS_DEBUG_STREAM("BestPose: " << best_tf);
+
         if (res == BaxterRobot::success) {
           find_state_ = TowerRobot::find_end;
         }
@@ -316,6 +362,7 @@ bool TowerRobot::FindCube() {
 bool TowerRobot::PickCube() {
   pick_state_ = TowerRobot::grip;
   bool success;
+  UpdateFace("determined");
   ROS_INFO("Picking Cube...");
   BaxterRobot::Result res;
   grip_calculated_ = pickup_calculated_ = false;
@@ -334,7 +381,7 @@ bool TowerRobot::PickCube() {
           grip_offset_.getBasis().setRPY(0, 0, 0);
           grip_offset_.setOrigin(tf2::Vector3(pick_x_offset_,
                                               pick_y_offset_,
-                                              pick_z_offset_));
+                                              pick_z_offset_ + approach_z_offset_ - 0.05));
 
           grip_pose_ = blurr_.CalcOffsetPose(arm_side_, grip_offset_);
           grip_calculated_ = true;
@@ -383,10 +430,10 @@ bool TowerRobot::PickCube() {
 
         ROS_DEBUG_STREAM("T: " << ros::Time::now().toSec() -
                          grip_cube_tf.header.stamp.toSec());
-        ROS_DEBUG_STREAM("Z: " << grip_cube_tf.transform.translation.z);
+        ROS_DEBUG_STREAM_THROTTLE(1, "Z: " << grip_cube_tf.transform.translation.z);
         // Check if picked cube successfully (Still seen and within grasp)
         // (right_arm_range_.range < 0.1) ? success = true : success = false;
-        if ((grip_cube_tf.transform.translation.z < 0.0) &&
+        if ((grip_cube_tf.transform.translation.z < 0.03) &&
             ((ros::Time::now().toSec() - grip_cube_tf.header.stamp.toSec()) < 0.5)) {
           success = true;
         } else {success = false;}
@@ -397,8 +444,11 @@ bool TowerRobot::PickCube() {
         if (success) {
           ROS_INFO_STREAM("Cube_" << target_cube_ << " Picked!");
           blurr_.Head().Nod();
+          // ros::shutdown();
         } else {
+          UpdateFace("surprised");
           ROS_INFO("Cube Missed!");
+          ros::Duration(2.0).sleep();
         }
       }
     } else {
@@ -413,11 +463,11 @@ bool TowerRobot::PickCube() {
 
 // ******************** PLACE ********************
 bool TowerRobot::PlaceCube() {
+  UpdateFace("look_right_down");
   ROS_INFO("Placing Cube...");
   place_state_ = TowerRobot::above;
   bool success = false;
   BaxterRobot::Result res;
-  // grip_calculated_ = pickup_calculated_ = false;
 
   while (ros::ok() && (place_state_ != TowerRobot::place_end) && !reset_) {
     ros::spinOnce();
@@ -427,28 +477,15 @@ bool TowerRobot::PlaceCube() {
       arm_->SetOuterLED(true); arm_->SetInnerLED(true);
       blurr_.SetLED("torso_" + side_ + "_inner_light", false);
 
-      // Go ABOVE tower for good positioning
-      if (place_state_ == TowerRobot::above) {
-        res = blurr_.MoveToPoseNB(arm_side_, "above_tower");
-        if (res == BaxterRobot::success) {
-          place_state_ = TowerRobot::place;
-        }
-      }
+      res = blurr_.MoveToPoseNB(arm_side_, "done", true);
 
-      // Final PLACE and release of cube
-      if (place_state_ == TowerRobot::place) {
-        place_offset_.getBasis().setRPY(M_PI, 0, 0);
-        place_offset_.setOrigin(tf2::Vector3(place_x_offset_, place_y_offset_,
-                                             place_z_offset_ +
-                                             (stacked_cubes_ * cube_size_)));
-
-        // TODO: Add failure check
-        res = blurr_.MoveToFrameNB(arm_side_, tower_frame_, place_offset_, true);
-        if (res == BaxterRobot::success) {
-          place_state_ = TowerRobot::retract;
-          arm_->EndEffector("release");
-          ros::Duration(sleep_time_).sleep();
-        }
+      if (res == BaxterRobot::success) {        
+        UpdateFace("smile");
+        ROS_INFO("RELEASE!");
+        blurr_.Head().Nod();
+        arm_->EndEffector("release");
+        success = true;
+        place_state_ = TowerRobot::reabove;
       }
 
       // RETRACT once cube is released
@@ -458,17 +495,11 @@ bool TowerRobot::PlaceCube() {
         best_pose.setOrigin(tf2::Vector3(0.0, 0.0, find_z_offset_));
 
         best_pose = blurr_.CheckBestApproach(arm_side_, target_frame_.str(), best_pose);
-
-        // TODO: Add failure check
-        res = blurr_.MoveToFrameNB(arm_side_, target_frame_.str(), best_pose, true);
-        if (res == BaxterRobot::success) {
-          place_state_ = TowerRobot::reabove;
-        }
       }
 
       // Go BACK ABOVE the tower for safety
       if (place_state_ == TowerRobot::reabove) {
-        res = blurr_.MoveToPoseNB(arm_side_, "above_tower");
+        res = blurr_.MoveToPoseNB(arm_side_, "above_tower", true);
         if (res == BaxterRobot::success) {
           place_state_ = TowerRobot::place_end;
           success = true;
@@ -478,13 +509,8 @@ bool TowerRobot::PlaceCube() {
       if (place_state_ == TowerRobot::place_end) {
         if (success) {
           ROS_INFO("Cube Placed!");
-          blurr_.Head().Nod();
           cube_status_[target_cube_] = 1;
           stacked_cubes_ += 1;
-          for (int i = 0; i < cubes_.size(); ++i) {
-            // ROS_INFO_STREAM("Cube: " << cubes_[i] <<
-            //                 " Status: " << cube_status_[cubes_[i]]);
-          }
         } else {
           ROS_INFO("Cube Place Failed!");
         }
@@ -504,6 +530,19 @@ void TowerRobot::TagDetectionsCB(
   tag_array_ = *msg;
 }
 
-// void TowerRobot::RightRangeCB(const sensor_msgs::Range::ConstPtr& msg) {
-//   right_arm_range_ = *msg;
-// }
+void TowerRobot::UpdateFace(const std::string& face_name) {
+  cv::Mat img = cv::imread("/opt/ros_ws/src/baxter-python3/faces/" + face_name + ".jpg");
+  cv::resize(img, img, cv::Size(1023, 600));
+
+  std_msgs::Header header;
+  header.stamp = ros::Time::now();
+
+  cv_bridge::CvImage img_bridge;
+  img_bridge = cv_bridge::CvImage(header, sensor_msgs::image_encodings::RGB8, img);
+
+  sensor_msgs::Image img_msg;
+  img_bridge.toImageMsg(img_msg);
+
+  face_image_pub_.publish(img_msg);
+  ros::spinOnce();
+}

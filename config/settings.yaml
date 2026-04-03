@@ -1,28 +1,33 @@
 # Demo
-cubes: [4, 6, 8, 10]
+# cubes: [4, 6, 8, 10]
+cubes: [2, 3, 4, 5]
+# Green: [2]; Red: [3], Blue: [4], Yellow: [5]
 # Blue: [4, 5]; Red: [6, 7]; Green: [8, 9]; Yellow: [10, 11]
 arm: "Left" # Right or Left
 explore_poses: 2
 search_time: 3.0
 
 # Baxter Camera
-exposure: 80
+exposure: 20
 gain: 40
 
 # Pick Offset relative to Gripper
 pick_x_offset: -0.005
 pick_y_offset: 0.0
-pick_z_offset: 0.19
+pick_z_offset: 0.39
 
 # Place Offset relative to Tower
-place_x_offset: -0.1
+# place_x_offset: -0.05
+# place_y_offset: 0.0
+# place_z_offset: 0.05
+place_x_offset: 0.05
 place_y_offset: 0.0
-place_z_offset: -0.01
+place_z_offset: -0.1
 
 # Default Parameters
 # tower_frame_: "tower" # Tower apriltag id is 1
 # sleep_time_: 0.2
-# find_z_offset_: -0.01
+# find_z_offset_: -0.05
 # cube_size_: 0.05
-# approach_z_offset: 0.15
+approach_z_offset: 0.05
 # pull_z_offset: -0.05

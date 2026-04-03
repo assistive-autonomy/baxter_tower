@@ -15,8 +15,13 @@
 
 #include <std_msgs/UInt8.h>
 #include <sensor_msgs/Range.h>
+#include <sensor_msgs/Image.h>
 #include <baxter_core_msgs/DigitalIOState.h>
 #include <apriltags_ros/AprilTagDetectionArray.h>
+
+#include <cv_bridge/cv_bridge.h>
+#include <sensor_msgs/image_encodings.h>
+#include <opencv2/opencv.hpp>
 
 class TowerRobot {
  public:
@@ -38,6 +43,8 @@ class TowerRobot {
   bool PickCube();
   bool PlaceCube();
 
+  void UpdateFace(const std::string& face_name);
+
   void TagDetectionsCB(
     const apriltags_ros::AprilTagDetectionArray::ConstPtr& msg);
   void ResetDemoCB(const baxter_core_msgs::DigitalIOState::ConstPtr& msg) {
@@ -48,6 +55,15 @@ class TowerRobot {
   }
   void PauseDemoCB(const baxter_core_msgs::DigitalIOState::ConstPtr& msg) {
     (msg->state == 1) ? pause_ = true : pause_ = false;
+  }
+  void CuffStateCB(const baxter_core_msgs::DigitalIOState::ConstPtr& msg) {
+    // if (msg->state == 1) 
+    // {
+    //   ROS_INFO("HEY!");
+    //   UpdateFace("confused");
+    //   ros::spinOnce();
+    //   rate_.sleep();
+    // }
   }
 
   // void RightRangeCB(const sensor_msgs::Range::ConstPtr& msg);
@@ -61,7 +77,9 @@ class TowerRobot {
   ros::Subscriber tag_detection_sub_;
   ros::Subscriber reset_demo_sub_;
   ros::Subscriber pause_demo_sub_;
-  // ros::Subscriber right_range_sub_;
+  ros::Subscriber cuff_state_sub_;
+  // ros::Subscriber right_range_sub_;]
+  ros::Publisher face_image_pub_;
 
   // Parameters
   std::vector<int> cubes_;
@@ -99,6 +117,7 @@ class TowerRobot {
   FindState find_state_;
   PickState pick_state_;
   PlaceState place_state_;
+  bool seen_tower_;
 
   // Variables
   std::stringstream target_frame_;
@@ -112,6 +131,12 @@ class TowerRobot {
   baxter_core_msgs::JointCommand pickup_pose_;
 
   tf2::Transform place_offset_;
+  tf2::Transform tower_offset_;
+  baxter_core_msgs::JointCommand tower_pose_;
+  geometry_msgs::TransformStamped tower_tf_;
+
+  cv_bridge::CvImagePtr cv_ptr_;
+
 
 
   // Other

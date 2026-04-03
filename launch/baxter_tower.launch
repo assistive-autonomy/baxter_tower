@@ -1,36 +1,15 @@
 <launch>
-<!--
-  <rosparam file="$(find baxter_tower)/config/settings.yaml"
-            command="load" /> -->
+
+<!--   <rosparam file="$(find baxter_tower)/config/settings.yaml"
+            command="load" />  -->
 
   <!-- <remap from="image_rect" to="/cameras/right_hand_camera/image"/> -->
-  <remap from="image_rect" to="/cameras/left_hand_camera/image"/>
 
-  <node name="apriltag_detector"
-        pkg="apriltags_ros"
-        type="apriltag_detector_node"
-        output="screen">
+  <node pkg="baxter_examples" name="gripper_cuff_control" type="gripper_cuff_control.py" args="--gripper left" output="screen"/> 
 
-      <rosparam param="tag_descriptions">
-        [{id: 1, size: 0.04, frame_id: tower},
-        {id: 2, size: 0.04, frame_id: cube_2},
-        {id: 3, size: 0.04, frame_id: cube_3},
-        {id: 4, size: 0.04, frame_id: cube_4},
-        {id: 5, size: 0.04, frame_id: cube_5},
-        {id: 6, size: 0.04, frame_id: cube_6},
-        {id: 7, size: 0.04, frame_id: cube_7},
-        {id: 8, size: 0.04, frame_id: cube_8},
-        {id: 9, size: 0.04, frame_id: cube_9},
-        {id: 10, size: 0.04, frame_id: cube_10},
-        {id: 11, size: 0.04, frame_id: cube_11},
-        {id: 12, size: 0.04, frame_id: cube_12},
-        {id: 13, size: 0.04, frame_id: cube_13},
-        {id: 14, size: 0.04, frame_id: cube_14},
-        {id: 15, size: 0.04, frame_id: cube_15}]
-      </rosparam>
-  </node>
+  <!-- <remap from="image_rect" to="/cameras/left_hand_camera/image"/> -->
 
-  <node name="baxter_tower" pkg="baxter_tower" type="baxter_tower" output="screen">
+  <node name="baxter_tower" pkg="baxter_tower" type="baxter_tower" clear_params="true" output="screen">
     <param name="left_arm/calib_file" type="str"
          value="$(find baxter_tower)/config/left_poses.cfg" />
     <param name="right_arm/calib_file" type="str"
