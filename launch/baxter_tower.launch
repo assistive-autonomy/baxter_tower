@@ -1,13 +1,6 @@
 <launch>
 
-<!--   <rosparam file="$(find baxter_tower)/config/settings.yaml"
-            command="load" />  -->
-
-  <!-- <remap from="image_rect" to="/cameras/right_hand_camera/image"/> -->
-
-  <node pkg="baxter_examples" name="gripper_cuff_control" type="gripper_cuff_control.py" args="--gripper left" output="screen"/> 
-
-  <!-- <remap from="image_rect" to="/cameras/left_hand_camera/image"/> -->
+  <node pkg="baxter_examples" name="gripper_cuff_control" type="gripper_cuff_control.py" args="--gripper left --no-lights" output="screen"/>
 
   <node name="baxter_tower" pkg="baxter_tower" type="baxter_tower" clear_params="true" output="screen">
     <param name="left_arm/calib_file" type="str"
