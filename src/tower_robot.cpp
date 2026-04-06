@@ -67,6 +67,12 @@ void TowerRobot::Init() {
   reset_ = false;
   pause_ = false;
   paused_ = false;
+  pause_reset_ = false;
+  pause_torso_ = false;
+  pause_arm_ = false;
+  cuffed_ = false;
+  cuff_held_ = false;
+  cuff_reset_ = false;
   seen_tower_ = false;
   cube_selected_ = grip_calculated_ = pickup_calculated_ = false;
   cam_settings_["exposure"] = exposure_;
@@ -98,9 +104,22 @@ void TowerRobot::RosSetup() {
   reset_demo_sub_ =
     nh_->subscribe("/robot/digital_io/torso_" + side_ + "_button_back/state",
                    1, &TowerRobot::ResetDemoCB, this);
-  pause_demo_sub_ =
+  pause_torso_sub_ =
     nh_->subscribe("/robot/digital_io/torso_" + side_ + "_button_show/state",
-                   1, &TowerRobot::PauseDemoCB, this);
+                   1, &TowerRobot::PauseTorsoCB, this);
+
+  reset_arm_sub_ =
+    nh_->subscribe("/robot/digital_io/" + side_ + "_button_back/state",
+                   1, &TowerRobot::ResetDemoCB, this);
+  pause_arm_sub_ =
+    nh_->subscribe("/robot/digital_io/" + side_ + "_button_show/state",
+                   1, &TowerRobot::PauseArmCB, this);
+
+  pause_timer_ = nh_->createTimer(ros::Duration(0.1), 
+                      &TowerRobot::PauseTimerCB, this);
+
+  cuff_timer_ = nh_->createTimer(ros::Duration(0.1), 
+                      &TowerRobot::CuffTimerCB, this);
 
   cuff_state_sub_ = 
     nh_->subscribe("/robot/digital_io/"+ side_ + "_lower_cuff/state",
@@ -205,11 +224,11 @@ bool TowerRobot::FindCube() {
   while (ros::ok() && !success && !reset_) {
     ros::spinOnce();
 
-    if (!pause_) {
-      if (paused_) {ROS_WARN("Resume"); paused_ = false;}
+    if (!paused_ && !cuffed_) {
       // FIND any cube
-      arm_->SetOuterLED(true); arm_->SetInnerLED(true);
+      arm_->SetOuterLED(true); arm_->SetInnerLED(false);
       blurr_.SetLED("torso_" + side_ + "_inner_light", false);
+      blurr_.SetLED("torso_" + side_ + "_outer_light", true);
       if ( (explore_poses_ > 0) &&
            ( (find_state_ == TowerRobot::find) ||
              (find_state_ == TowerRobot::search) ) ) {
@@ -278,12 +297,12 @@ bool TowerRobot::FindCube() {
           // if (pitch > 0.35) {
           // tf2::Transform approach_pose_;
           approach_offset_.getBasis().setRPY(0, 0, yaw);
-          // approach_offset_.getBasis().setRPY(0, 0, 0);
+
           approach_offset_.setOrigin(tf2::Vector3(cube_tf_.transform.translation.x,
                                                   cube_tf_.transform.translation.y,
                                                   cube_tf_.transform.translation.z
                                                   - approach_z_offset_));
-          // ROS_INFO("BeforeCalcOff");
+
           try {
             approach_pose_ = blurr_.CalcOffsetPose(arm_side_, approach_offset_);
           }
@@ -300,17 +319,16 @@ bool TowerRobot::FindCube() {
           ROS_DEBUG_STREAM("ApproachPose: " << approach_tf);
 
         }
-        // ROS_INFO("Debug");
+
         res = blurr_.MoveToNB(arm_side_, approach_pose_, true);
         if (res == BaxterRobot::success) {
           find_state_ = TowerRobot::closein;
           ROS_INFO("CLOSEIN!");
-          // ros::shutdown();  // TEMPFIX
         } else if (res == BaxterRobot::error) {
           ROS_INFO("Approach Error!");
           cube_selected_ = false;
         }
-        // }
+
       }
 
       // CLOSEIN to best pose just above cube
@@ -341,7 +359,6 @@ bool TowerRobot::FindCube() {
       }
 
       if ((cube_no > -1) && (find_state_ == TowerRobot::find_end)) {
-        // TODO: Add failure check
         success = true;
         if (success) {
           ROS_INFO_STREAM("Cube_" << target_cube_ << " Found!");
@@ -349,9 +366,9 @@ bool TowerRobot::FindCube() {
         }
       }
     } else {
-      arm_->SetOuterLED(false); arm_->SetInnerLED(false);
+      arm_->SetOuterLED(false); arm_->SetInnerLED(true);
       blurr_.SetLED("torso_" + side_ + "_inner_light", true);
-      if (!paused_) {ROS_WARN("Pause"); paused_ = true;}
+      blurr_.SetLED("torso_" + side_ + "_outer_light", false);
     }
     rate_.sleep();
   }
@@ -370,10 +387,10 @@ bool TowerRobot::PickCube() {
   while (ros::ok() && (pick_state_ != TowerRobot::pick_end) && !reset_) {
     ros::spinOnce();
 
-    if (!pause_) {
-      if (paused_) {ROS_WARN("Resume"); paused_ = false;}
-      arm_->SetOuterLED(true); arm_->SetInnerLED(true);
+    if (!paused_ && !cuffed_) {
+      arm_->SetOuterLED(true); arm_->SetInnerLED(false);
       blurr_.SetLED("torso_" + side_ + "_inner_light", false);
+      blurr_.SetLED("torso_" + side_ + "_outer_light", true);
 
       // GRIP the cube found
       if (pick_state_ == TowerRobot::grip) {
@@ -452,9 +469,9 @@ bool TowerRobot::PickCube() {
         }
       }
     } else {
-      arm_->SetOuterLED(false); arm_->SetInnerLED(false);
+      arm_->SetOuterLED(false); arm_->SetInnerLED(true);
       blurr_.SetLED("torso_" + side_ + "_inner_light", true);
-      if (!paused_) {ROS_WARN("Pause"); paused_ = true;}
+      blurr_.SetLED("torso_" + side_ + "_outer_light", false);
     }
     rate_.sleep();
   }
@@ -472,10 +489,10 @@ bool TowerRobot::PlaceCube() {
   while (ros::ok() && (place_state_ != TowerRobot::place_end) && !reset_) {
     ros::spinOnce();
 
-    if (!pause_) {
-      if (paused_) {ROS_WARN("Resume"); paused_ = false;}
-      arm_->SetOuterLED(true); arm_->SetInnerLED(true);
+    if (!paused_ && !cuffed_) {
+      arm_->SetOuterLED(true); arm_->SetInnerLED(false);
       blurr_.SetLED("torso_" + side_ + "_inner_light", false);
+      blurr_.SetLED("torso_" + side_ + "_outer_light", true);
 
       res = blurr_.MoveToPoseNB(arm_side_, "done", true);
 
@@ -516,9 +533,9 @@ bool TowerRobot::PlaceCube() {
         }
       }
     } else {
-      arm_->SetOuterLED(false); arm_->SetInnerLED(false);
+      arm_->SetOuterLED(false); arm_->SetInnerLED(true);
       blurr_.SetLED("torso_" + side_ + "_inner_light", true);
-      if (!paused_) {ROS_WARN("Pause"); paused_ = true;}
+      blurr_.SetLED("torso_" + side_ + "_outer_light", false);
     }
     rate_.sleep();
   }
@@ -544,5 +561,6 @@ void TowerRobot::UpdateFace(const std::string& face_name) {
   img_bridge.toImageMsg(img_msg);
 
   face_image_pub_.publish(img_msg);
+  current_face_ = face_name;
   ros::spinOnce();
 }
