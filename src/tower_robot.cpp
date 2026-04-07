@@ -132,7 +132,6 @@ void TowerRobot::RosSetup() {
 }
 
 void TowerRobot::InitRobot() {
-  // &blurr_.RightArm()->OpenCamera(1280, 800, 30, cam_settings_);
   arm_->OpenCamera(1280, 800, 30, cam_settings_);
   arm_->EndEffector("release");
 
