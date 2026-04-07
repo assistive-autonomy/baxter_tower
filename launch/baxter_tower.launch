@@ -2,6 +2,8 @@
 
   <node pkg="baxter_examples" name="gripper_cuff_control" type="gripper_cuff_control.py" args="--gripper left --no-lights" output="screen"/>
 
+  <node pkg="baxter_tools" name="open_head_camera" type="camera_control.py" args="-o head_camera -r 1280x800" output="screen"/>
+
   <node name="baxter_tower" pkg="baxter_tower" type="baxter_tower" clear_params="true" output="screen">
     <param name="left_arm/calib_file" type="str"
          value="$(find baxter_tower)/config/left_poses.cfg" />
