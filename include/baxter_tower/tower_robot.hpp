@@ -15,8 +15,13 @@
 
 #include <std_msgs/UInt8.h>
 #include <sensor_msgs/Range.h>
+#include <sensor_msgs/Image.h>
 #include <baxter_core_msgs/DigitalIOState.h>
 #include <apriltags_ros/AprilTagDetectionArray.h>
+
+#include <cv_bridge/cv_bridge.h>
+#include <sensor_msgs/image_encodings.h>
+#include <opencv2/opencv.hpp>
 
 class TowerRobot {
  public:
@@ -38,6 +43,8 @@ class TowerRobot {
   bool PickCube();
   bool PlaceCube();
 
+  void UpdateFace(const std::string& face_name);
+
   void TagDetectionsCB(
     const apriltags_ros::AprilTagDetectionArray::ConstPtr& msg);
   void ResetDemoCB(const baxter_core_msgs::DigitalIOState::ConstPtr& msg) {
@@ -46,8 +53,64 @@ class TowerRobot {
       blurr_.SetLED("torso_" + side_ + "_outer_light", true);
     }
   }
-  void PauseDemoCB(const baxter_core_msgs::DigitalIOState::ConstPtr& msg) {
-    (msg->state == 1) ? pause_ = true : pause_ = false;
+  void PauseTorsoCB(const baxter_core_msgs::DigitalIOState::ConstPtr& msg) {
+    pause_torso_ = msg->state;
+  }
+
+  void PauseArmCB(const baxter_core_msgs::DigitalIOState::ConstPtr& msg) {
+    pause_arm_ = msg->state;
+  }
+
+  void PauseTimerCB(const ros::TimerEvent& event)
+  {
+    if (pause_torso_ or pause_arm_) {
+      pause_ = true;
+    } else {
+      pause_ = false;
+    }
+
+    if (!paused_ and pause_ and !pause_reset_)
+    {
+      paused_ = true;
+      previous_face_ = current_face_;
+      UpdateFace("sleep");
+      ROS_DEBUG("PAUSE");
+    }
+    else if (paused_ and !pause_)
+    {
+      pause_reset_ = true;
+    }
+    else if (paused_ and pause_ and pause_reset_)
+    {
+      paused_ = false;
+      UpdateFace(previous_face_);
+      ROS_DEBUG("RESUME");
+    }
+    else if (!paused_ and !pause_)
+    {
+      pause_reset_ = false;
+    }
+  }
+
+  void CuffStateCB(const baxter_core_msgs::DigitalIOState::ConstPtr& msg) {
+    cuff_held_ = msg->state;
+  }
+ 
+  void CuffTimerCB(const ros::TimerEvent& event)
+  {
+    if (!cuffed_ and cuff_held_)
+    {
+      cuffed_ = true;
+      previous_face_ = current_face_;
+      UpdateFace("confused");
+      ROS_DEBUG("HELD");
+    }
+    else if (cuffed_ and !cuff_held_)
+    {
+      cuffed_ = false;
+      UpdateFace(previous_face_);
+      ROS_DEBUG("UNHELD");
+    }
   }
 
   // void RightRangeCB(const sensor_msgs::Range::ConstPtr& msg);
@@ -60,8 +123,15 @@ class TowerRobot {
   tf2_ros::TransformListener tf_listener_;
   ros::Subscriber tag_detection_sub_;
   ros::Subscriber reset_demo_sub_;
-  ros::Subscriber pause_demo_sub_;
+  ros::Subscriber pause_torso_sub_;
+  ros::Subscriber reset_arm_sub_;
+  ros::Subscriber pause_arm_sub_;
+  ros::Subscriber cuff_state_sub_;
   // ros::Subscriber right_range_sub_;
+  ros::Publisher gripper_pub_;
+  ros::Publisher face_image_pub_;
+  ros::Timer pause_timer_;
+  ros::Timer cuff_timer_;
 
   // Parameters
   std::vector<int> cubes_;
@@ -92,13 +162,15 @@ class TowerRobot {
   // sensor_msgs::Range right_arm_range_;
 
   // Flags
-  bool reset_, pause_, paused_;
+  bool reset_, pause_, paused_, pause_reset_, pause_torso_, pause_arm_;
+  bool cuffed_, cuff_held_, cuff_reset_;
 
   bool cube_selected_, grip_calculated_, pickup_calculated_;
 
   FindState find_state_;
   PickState pick_state_;
   PlaceState place_state_;
+  bool seen_tower_;
 
   // Variables
   std::stringstream target_frame_;
@@ -112,6 +184,13 @@ class TowerRobot {
   baxter_core_msgs::JointCommand pickup_pose_;
 
   tf2::Transform place_offset_;
+  tf2::Transform tower_offset_;
+  baxter_core_msgs::JointCommand tower_pose_;
+  geometry_msgs::TransformStamped tower_tf_;
+
+  cv_bridge::CvImagePtr cv_ptr_;
+
+  std::string current_face_, previous_face_;
 
 
   // Other
