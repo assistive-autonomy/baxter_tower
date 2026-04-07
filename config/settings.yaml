@@ -1,15 +1,14 @@
 # Demo
 # cubes: [4, 6, 8, 10]
 cubes: [2, 3, 4, 5]
-# Green: [2]; Red: [3], Blue: [4], Yellow: [5]
-# Blue: [4, 5]; Red: [6, 7]; Green: [8, 9]; Yellow: [10, 11]
+# Green: [2, 6]; Red: [3, 7], Blue: [4, 8], Yellow: [5, 9]
 arm: "Left" # Right or Left
 explore_poses: 2
 search_time: 3.0
 
 # Baxter Camera
-exposure: 20
-gain: 40
+exposure: 10
+gain: 10
 
 # Pick Offset relative to Gripper
 pick_x_offset: -0.005
